@@ -26,6 +26,13 @@ def main():
                        help='View type: user-centric, week-centric, or both (default: both)')
     parser.add_argument('--format', choices=['console', 'csv', 'json', 'all'], default='all',
                        help='Export format(s) (default: all)')
+    parser.add_argument('--chart', action='store_true',
+                       help='Generate line chart of last N weeks')
+    parser.add_argument('--chart-weeks', type=int, default=6,
+                       help='Number of weeks to chart (default: 6)')
+    parser.add_argument('--exclude-authors', nargs='+',
+                       default=['o-p-e-n-ios', 'openEngBot'],
+                       help='Authors to exclude from visualization')
     
     args = parser.parse_args()
     
@@ -71,6 +78,34 @@ def main():
                 print("Week-Centric View")
                 print("=" * 60)
             export_weekly_stats(weekly_aggregates, trends, args.format)
+        
+        # Generate chart if requested
+        if args.chart:
+            print("\n" + "=" * 60)
+            print("Generating Commit Activity Chart")
+            print("=" * 60)
+            try:
+                from visualizer import generate_commit_line_chart, generate_console_table
+                
+                # Load existing stats if we didn't fetch them
+                if args.view not in ['user', 'both']:
+                    weekly_stats = process_statistics(contributors, WEEKS_TO_FETCH)
+                
+                # Generate console table
+                generate_console_table(weekly_stats, 
+                                     weeks=args.chart_weeks,
+                                     exclude_authors=args.exclude_authors)
+                
+                # Try to generate chart
+                try:
+                    generate_commit_line_chart(weekly_stats,
+                                             weeks=args.chart_weeks,
+                                             exclude_authors=args.exclude_authors)
+                except ImportError:
+                    print("Note: Matplotlib not installed. Install with: pip install matplotlib")
+                    print("Showing console table only.")
+            except ImportError:
+                print("Error: visualizer module not found")
         
         print("\nStatistics processing complete!")
         
