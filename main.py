@@ -33,6 +33,14 @@ def main():
     parser.add_argument('--exclude-authors', nargs='+',
                        default=['o-p-e-n-ios', 'openEngBot'],
                        help='Authors to exclude from visualization')
+    parser.add_argument('--visualize', action='store_true',
+                       help='Launch interactive visualizer')
+    parser.add_argument('--viz-mode', choices=['interactive', 'dashboard', 'heatmap'],
+                       default='interactive',
+                       help='Visualization mode (default: interactive)')
+    parser.add_argument('--viz-metric', choices=['commits', 'additions', 'deletions'],
+                       default='commits',
+                       help='Initial metric to display (default: commits)')
     
     args = parser.parse_args()
     
@@ -106,6 +114,60 @@ def main():
                     print("Showing console table only.")
             except ImportError:
                 print("Error: visualizer module not found")
+        
+        # Launch interactive visualizer if requested
+        if args.visualize:
+            print("\n" + "=" * 60)
+            print("Launching Interactive Visualizer")
+            print("=" * 60)
+            try:
+                from visualizer import (InteractiveVisualizer, ComparisonDashboard, 
+                                       ActivityHeatmap, generate_console_table)
+                
+                # Load existing stats if we didn't fetch them
+                if 'weekly_stats' not in locals():
+                    weekly_stats = process_statistics(contributors, WEEKS_TO_FETCH)
+                if 'weekly_aggregates' not in locals() and args.view in ['week', 'both']:
+                    weekly_aggregates = aggregate_by_week(contributors, WEEKS_TO_FETCH)
+                else:
+                    weekly_aggregates = None
+                
+                # Launch appropriate visualizer
+                if args.viz_mode == 'interactive':
+                    print("Launching interactive plot with metric toggle...")
+                    print("Controls:")
+                    print("  - Radio buttons: Switch between Commits, Additions, Deletions")
+                    print("  - Checkboxes: Toggle contributors on/off")
+                    print("  - Slider: Adjust time range (4-52 weeks)")
+                    print("  - Export button: Save current view as PNG")
+                    
+                    viz = InteractiveVisualizer(weekly_stats, weekly_aggregates)
+                    viz.current_metric = args.viz_metric
+                    viz.create_interactive_plot()
+                    
+                elif args.viz_mode == 'dashboard':
+                    print("Launching comparison dashboard...")
+                    print("Shows all three metrics (commits, additions, deletions) simultaneously")
+                    
+                    dashboard = ComparisonDashboard(weekly_stats, weekly_aggregates)
+                    dashboard.create_dashboard(weeks=args.chart_weeks)
+                    
+                elif args.viz_mode == 'heatmap':
+                    print(f"Launching activity heatmap for {args.viz_metric}...")
+                    
+                    heatmap = ActivityHeatmap(weekly_stats)
+                    heatmap.create_heatmap(metric=args.viz_metric)
+                    
+            except ImportError as e:
+                print(f"Error: {e}")
+                print("Matplotlib is required for interactive visualization.")
+                print("Install with: pip install matplotlib")
+                
+                # Fall back to console table
+                if 'weekly_stats' in locals():
+                    print("\nShowing console table instead:")
+                    generate_console_table(weekly_stats, weeks=args.chart_weeks,
+                                         exclude_authors=args.exclude_authors)
         
         print("\nStatistics processing complete!")
         
