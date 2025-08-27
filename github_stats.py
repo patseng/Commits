@@ -4,8 +4,9 @@
 import json
 import os
 import time
-from datetime import datetime
-from typing import Dict, List, Any
+from datetime import datetime, timezone
+from typing import Dict, List, Any, Optional
+from urllib.parse import quote
 import requests
 
 
@@ -254,4 +255,92 @@ def calculate_weekly_trends(weekly_aggregates: Dict[str, Dict]) -> Dict[str, Any
             for c in most_consistent
         ],
         'commit_growth_rate': growth_rate
+    }
+
+
+def fetch_pull_requests_search(owner: str, repo: str, query: str, token: str) -> List[Dict[str, Any]]:
+    """
+    Wrapper for GitHub Search API to fetch pull requests
+    
+    Args:
+        owner: Repository owner
+        repo: Repository name
+        query: Search query string
+        token: GitHub personal access token
+    
+    Returns:
+        List of pull request items from search results
+    """
+    headers = {
+        "Authorization": f"token {token}",
+        "Accept": "application/vnd.github.v3+json"
+    }
+    
+    # Build the full query including repo context
+    full_query = f"repo:{owner}/{repo} {query}"
+    encoded_query = quote(full_query)
+    
+    url = f"https://api.github.com/search/issues?q={encoded_query}&per_page=100"
+    
+    all_items = []
+    page = 1
+    
+    while True:
+        paginated_url = f"{url}&page={page}"
+        response = requests.get(paginated_url, headers=headers)
+        
+        if response.status_code == 403 and 'rate limit' in response.text.lower():
+            print("Rate limit reached, waiting 60 seconds...")
+            time.sleep(60)
+            response = requests.get(paginated_url, headers=headers)
+        
+        if response.status_code != 200:
+            print(f"Warning: Search API returned {response.status_code}")
+            break
+            
+        data = response.json()
+        items = data.get('items', [])
+        
+        if not items:
+            break
+            
+        all_items.extend(items)
+        
+        # Check if there are more pages
+        if 'next' not in response.links:
+            break
+            
+        page += 1
+        
+        # Respect rate limiting
+        time.sleep(1)
+    
+    return all_items
+
+
+def get_day_of_week_stats(timestamp: int) -> Dict[str, Any]:
+    """
+    Convert Unix timestamp to weekday information
+    
+    Args:
+        timestamp: Unix timestamp (in UTC)
+    
+    Returns:
+        Dictionary with day name, weekday number, and formatted date
+    """
+    if not timestamp:
+        return {
+            'day_name': 'Unknown',
+            'weekday': -1,
+            'date': 'Unknown'
+        }
+    
+    dt = datetime.fromtimestamp(timestamp, tz=timezone.utc)
+    days = ['Monday', 'Tuesday', 'Wednesday', 'Thursday', 'Friday', 'Saturday', 'Sunday']
+    
+    return {
+        'day_name': days[dt.weekday()],
+        'weekday': dt.weekday(),
+        'date': dt.strftime('%Y-%m-%d'),
+        'week_start': dt.strftime('%Y-%m-%d')  # GitHub weeks start on Sunday
     }
