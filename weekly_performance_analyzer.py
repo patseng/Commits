@@ -256,27 +256,48 @@ def analyze_weekly_performance(owner: str, repos: List[str], aliases_file: str =
                 all_stats[canonical_author]['total_additions'] += week.get('a', 0)
                 all_stats[canonical_author]['total_deletions'] += week.get('d', 0)
     
-    # Step 3: Fetch PR metrics if date_range provided
-    if date_range:
-        print("\nFetching PR metrics...")
+    # Step 3: Fetch PR metrics
+    # If no date_range provided, calculate based on num_weeks
+    if not date_range:
+        end_date = datetime.now().strftime('%Y-%m-%d')
+        start_date = (datetime.now() - timedelta(weeks=num_weeks)).strftime('%Y-%m-%d')
+        date_range = (start_date, end_date)
+    else:
         start_date, end_date = date_range
-        
-        for canonical_author, author_data in all_stats.items():
-            for alias in author_data['aliases']:
-                for repo in repos:
+    
+    print(f"\nFetching PR metrics from {start_date} to {end_date}...")
+    
+    # Limit PR fetching to avoid timeout - only fetch for top contributors
+    sorted_by_commits = sorted(all_stats.items(), key=lambda x: x[1]['total_commits'], reverse=True)
+    top_contributors = sorted_by_commits[:5]  # Fetch PRs for top 5 contributors only to avoid timeout
+    
+    for canonical_author, author_data in top_contributors:
+        # Skip bot accounts
+        if canonical_author.lower() in ['o-p-e-n-ios', 'openengbot', 'bot', 'github-actions[bot]', 'claude[bot]']:
+            continue
+            
+        for alias in author_data['aliases']:
+            for repo in repos:
+                try:
                     print(f"  Getting PRs for {alias} in {repo}...")
                     
                     # Get PRs opened
                     prs_opened = pr_metrics.get_prs_opened(owner, repo, alias, date_range)
                     author_data['pr_metrics']['opened'] += len(prs_opened)
                     
-                    # Get PRs merged
+                    # Get PRs merged with author filter
                     prs_merged = pr_metrics.get_prs_merged(owner, repo, alias, date_range)
                     author_data['pr_metrics']['merged'] += len(prs_merged)
                     
-                    # Get PRs reviewed
-                    prs_reviewed = pr_metrics.get_prs_reviewed(owner, repo, alias, date_range)
-                    author_data['pr_metrics']['reviewed'] += len(prs_reviewed)
+                    # Get PRs reviewed (skip for efficiency if needed)
+                    # PRs reviewed can be slower as it searches across all PRs
+                    if author_data['pr_metrics']['opened'] > 0 or author_data['pr_metrics']['merged'] > 0:
+                        prs_reviewed = pr_metrics.get_prs_reviewed(owner, repo, alias, date_range)
+                        author_data['pr_metrics']['reviewed'] += len(prs_reviewed)
+                    
+                except Exception as e:
+                    print(f"    Warning: Could not fetch PR metrics for {alias}: {str(e)}")
+                    continue
     
     # Step 4: Generate performance table
     return generate_performance_table(all_stats)
@@ -380,8 +401,8 @@ def export_to_markdown(performance_data: Dict[str, Any], output_file: str = "wee
                           reverse=True)
     
     # Create main performance table
-    lines.append("| Author | Commits | Additions | Deletions | Lines Changed |")
-    lines.append("|--------|---------|-----------|-----------|---------------|")
+    lines.append("| Author | Commits | Additions | Deletions | Lines Changed | PRs Opened | PRs Merged | PRs Reviewed |")
+    lines.append("|--------|---------|-----------|-----------|---------------|------------|------------|--------------|")
     
     for author, author_data in sorted_authors:
         total_lines = author_data['total_additions'] + author_data['total_deletions']
@@ -391,9 +412,18 @@ def export_to_markdown(performance_data: Dict[str, Any], output_file: str = "wee
         if len(author_data['aliases']) > 1:
             author_display = f"{author}*"
         
+        # Get PR metrics if available
+        prs_opened = "-"
+        prs_merged = "-"
+        prs_reviewed = "-"
+        if 'pr_metrics' in author_data:
+            prs_opened = str(author_data['pr_metrics']['opened'])
+            prs_merged = str(author_data['pr_metrics']['merged'])
+            prs_reviewed = str(author_data['pr_metrics']['reviewed'])
+        
         lines.append(f"| {author_display} | {author_data['total_commits']} | "
                     f"{author_data['total_additions']:,} | {author_data['total_deletions']:,} | "
-                    f"{total_lines:,} |")
+                    f"{total_lines:,} | {prs_opened} | {prs_merged} | {prs_reviewed} |")
     
     lines.append("")
     
